@@ -5,7 +5,7 @@ import { connectSocket, disconnectSocket } from "./Socket";
 import Authpage from "./Authpage";
 import Passengerdashboard from "./Passengerdashboard";
 import DriverDashboard from "./DriverDashboard";
-import MapPage from "./Mappage";
+import MapPage from "./MapPage";
 import AnalyticsPage from "./AnalyticsPage";
 import ProfilePage from "./ProfilePage";
 import RidesPage from "./RidesPage";

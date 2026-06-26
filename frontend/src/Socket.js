@@ -6,7 +6,7 @@ export function connectSocket(token) {
   if (!token) return null;
   if (socket?.connected) socket.disconnect();
 
-  socket = io("http://localhost:5000", {
+  socket = io("https://ridesync-backend-rlsh.onrender.com", {
     auth: { token },
     transports: ["websocket", "polling"],
     reconnection: true,
