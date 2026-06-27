@@ -1,17 +1,21 @@
-import axios from 'axios'
+import axios from "axios";
+export const BASE_URL = "https://ridesync-backend-rlsh.onrender.com";
 
-const api = axios.create({ baseURL: '/api' })
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL,
+});
 
 api.interceptors.request.use(cfg => {
-  const token = localStorage.getItem('cr_token')
-  if (token) cfg.headers.Authorization = `Bearer ${token}`
-  return cfg
-})
+  const token = localStorage.getItem("cr_token");
+  if (token) cfg.headers.Authorization = `Bearer ${token}`;
+  return cfg;
+});
 
 api.interceptors.response.use(
   r => r.data,
   err => Promise.reject(err.response?.data || err)
-)
+);
+
 
 export const ridesAPI = {
   create: (data) => api.post('/rides', data),

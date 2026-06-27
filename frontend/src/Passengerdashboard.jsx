@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuthStore } from "./Authstore";
 import { PageLayout } from "./Layout";
 import { getSocket } from "./Socket";
+import api from "./Api";
 
 const CAMPUSES = ["Main Gate","Library","Academic Block A","Academic Block B","Hostel Zone 1","Hostel Zone 2","Cafeteria","Sports Complex","Admin Block","Medical Center","Research Park","Stadium"];
 
@@ -9,13 +10,7 @@ const STATUS_COLOR = { requested:"#ffdd57", accepted:"#00efff", inprogress:"#00f
 const STATUS_LABEL = { requested:"Searching for driver...", accepted:"Driver on the way", inprogress:"Ride in progress", completed:"Completed", cancelled:"Cancelled" };
 const STATUS_PCT = { requested:12, accepted:40, inprogress:70, completed:100, cancelled:0 };
 
-const api = (path, opts = {}) => {
-  const token = localStorage.getItem("cr_token");
-  return fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    ...opts,
-  }).then(r => r.json());
-};
+
 
 function StatCard({ label, value, sub, color, icon }) {
   return (
@@ -50,20 +45,20 @@ export default function PassengerDashboard() {
 
   const showToast = (msg, type="info") => { setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
 
-  const loadData = useCallback(async () => {
-    try {
-      const [driversRes, ridesRes] = await Promise.all([
-        api("/drivers/online"),
-        api("/rides?limit=10"),
-      ]);
-      setDrivers(Array.isArray(driversRes) ? driversRes : []);
-      if (ridesRes.rides) {
-        const active = ridesRes.rides.find(r => ["requested","accepted","inprogress"].includes(r.status));
-        setActiveRide(active || null);
-        setHistory(ridesRes.rides.filter(r => ["completed","cancelled"].includes(r.status)));
-      }
-    } catch (err) { console.error(err); }
-  }, []);
+ const loadData = useCallback(async () => {
+  try {
+    const [driversRes, ridesRes] = await Promise.all([
+      api.get('/drivers/online'),
+      api.get('/rides', { params: { limit: 10 } }),
+    ]);
+    setDrivers(Array.isArray(driversRes) ? driversRes : []);
+    if (ridesRes.rides) {
+      const active = ridesRes.rides.find(r => ["requested","accepted","inprogress"].includes(r.status));
+      setActiveRide(active || null);
+      setHistory(ridesRes.rides.filter(r => ["completed","cancelled"].includes(r.status)));
+    }
+  } catch (err) { console.error(err); }
+}, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -74,7 +69,7 @@ export default function PassengerDashboard() {
     const onStarted = (ride) => { setActiveRide(ride); showToast("🚗 Your ride has started!", "info"); };
     const onCompleted = (ride) => { setActiveRide(ride); showToast("✅ Ride completed! Please rate your driver.", "success"); };
     const onCancelled = (ride) => { if (String(ride.passenger?._id||ride.passenger) === String(user?._id)) { setActiveRide(ride); showToast("Ride was cancelled", "warn"); } };
-    const onDriverStatus = () => api("/drivers/online").then(d => setDrivers(Array.isArray(d) ? d : []));
+    const onDriverStatus = () => api.get('/drivers/online').then(d => setDrivers(Array.isArray(d) ? d : []));
     socket.on("ride:accepted", onAccepted);
     socket.on("ride:started", onStarted);
     socket.on("ride:completed", onCompleted);
@@ -85,35 +80,41 @@ export default function PassengerDashboard() {
   }, [activeRide?._id, user?._id]);
 
   const requestRide = async () => {
-    if (!form.pickup || !form.destination) { showToast("Enter pickup and destination","warn"); return; }
-    if (form.pickup === form.destination) { showToast("Pickup and destination can't be same","warn"); return; }
-    setLoading(true);
-    try {
-      const ride = await api("/rides", { method:"POST", body: JSON.stringify({ pickup:{name:form.pickup}, destination:{name:form.destination}, isScheduled:form.isScheduled, scheduledAt:form.scheduledAt||null }) });
-      if (ride._id) {
-        setActiveRide(ride);
-        setForm(f => ({...f,pickup:"",destination:""}));
-        showToast("🔍 Ride requested! Searching for drivers...", "info");
-        getSocket()?.emit("ride:join", ride._id);
-      } else { showToast(ride.message||"Failed to request","error"); }
-    } catch { showToast("Network error","error"); }
-    setLoading(false);
-  };
+  if (!form.pickup || !form.destination) { showToast("Enter pickup and destination","warn"); return; }
+  if (form.pickup === form.destination) { showToast("Pickup and destination can't be same","warn"); return; }
+  setLoading(true);
+  try {
+    const ride = await api.post('/rides', {
+      pickup: { name: form.pickup },
+      destination: { name: form.destination },
+      isScheduled: form.isScheduled,
+      scheduledAt: form.scheduledAt || null,
+    });
+    if (ride._id) {
+      setActiveRide(ride);
+      setForm(f => ({...f, pickup:"", destination:""}));
+      showToast("🔍 Ride requested! Searching for drivers...", "info");
+      getSocket()?.emit("ride:join", ride._id);
+    } else { showToast(ride.message||"Failed to request","error"); }
+  } catch { showToast("Network error","error"); }
+  setLoading(false);
+};
 
   const cancelRide = async () => {
-    try { await api(`/rides/${activeRide._id}/cancel`, {method:"PATCH",body:JSON.stringify({reason:"Cancelled by passenger"})}); setActiveRide(r=>({...r,status:"cancelled"})); showToast("Ride cancelled","warn"); }
-    catch { showToast("Failed to cancel","error"); }
-  };
-
-  const submitRating = async () => {
-    if (!rating) { showToast("Please select stars","warn"); return; }
-    try {
-      await api(`/rides/${activeRide._id}/rate`, {method:"POST",body:JSON.stringify({stars:rating,feedback})});
-      showToast(`⭐ ${rating}-star rating submitted!`,"success");
-      setActiveRide(null); setRating(0); setFeedback(""); loadData();
-    } catch (err) { showToast(err.message||"Rating failed","error"); }
-  };
-
+  try {
+    await api.patch(`/rides/${activeRide._id}/cancel`, { reason: "Cancelled by passenger" });
+    setActiveRide(r => ({...r, status:"cancelled"}));
+    showToast("Ride cancelled","warn");
+  } catch { showToast("Failed to cancel","error"); }
+};
+ const submitRating = async () => {
+  if (!rating) { showToast("Please select stars","warn"); return; }
+  try {
+    await api.post(`/rides/${activeRide._id}/rate`, { stars: rating, feedback });
+    showToast(`⭐ ${rating}-star rating submitted!`,"success");
+    setActiveRide(null); setRating(0); setFeedback(""); loadData();
+  } catch (err) { showToast(err.message||"Rating failed","error"); }
+};
   const isActiveRide = activeRide && !["completed","cancelled"].includes(activeRide.status);
 
   return (
